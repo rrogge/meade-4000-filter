@@ -8,12 +8,18 @@ output:
         fig_height: 6
 ---
 
+Set this flag to TRUE when you want to write out plot.
+```{r}
+write.plot.enabled = F
+```
+
+
 ```{r, message=FALSE}
 library(data.table)
 library(ggplot2)
 ```
 
-Reas Meade 4000 filter data from files
+Read Meade 4000 filter data from files
 ```{r}
 read.filter <- function(name,code) {
   df <- read.csv(name, col.names=c("w","transmission","X"))[,1:2]
@@ -34,7 +40,7 @@ filter <- rbind(filter, read.filter("Meade 4000 Filter 80A.csv","80A"))
 filter <- rbind(filter, read.filter("Meade 4000 Filter 82.csv","82"))
 ```
 
-Fix plot order
+Make a fix plot order using increasing fiter number
 ```{r}
 filter$code <- factor(filter$code, levels=c("8",   "11",  "21", 
                                             "23A", "25A", "38A", 
@@ -44,7 +50,13 @@ filter$code <- factor(filter$code, levels=c("8",   "11",  "21",
 
 Plot transmission of Meade 4000 filters
 ```{r}
-ggplot(data=filter) +
+write.plot <- function(p, filename, width=1024, height=576) {
+  png(filename,width, height)
+  print(p + theme_bw(base_size=16))
+  dev.off()
+}
+
+p <- ggplot(data=filter) +
   geom_line(aes(w,transmission,color=code)) +
   scale_colour_manual(name="Filter",
                       values=c("yellow",       "yellowgreen", "orange",
@@ -58,6 +70,9 @@ ggplot(data=filter) +
   labs(title="Meade 4000 Filter", x="Wavelength [nm]", y="Transmission [%]") +
   theme_bw() +
   coord_cartesian(xlim=c(250,800))
+p
+
+if (write.plot.enabled) write.plot(p, "Meade 4000 Filter.png")
 ```
 
 Read data for scotopic and photopic vision from file
@@ -81,7 +96,7 @@ w.max <- min(max(vision$w), 720)
 
 Plot relative luminous efficency of photopic and scotopic visions
 ```{r}
-ggplot(data=vision) +
+p <- ggplot(data=vision) +
   geom_line(aes(x=w,y=v,color=type)) +
   scale_color_manual(name="Vision", values=c("black","grey70")) +
   labs(title="Photopic and Scotopic Vision", 
@@ -89,6 +104,9 @@ ggplot(data=vision) +
        y="Relative Luminous Efficiency") +
   coord_cartesian(xlim=c(w.min,w.max)) +
   theme_bw()
+p
+
+if (write.plot.enabled) write.plot(p, "Photopic and Scotopic Vision.png")
 ```
 
 ```{r}
@@ -99,9 +117,9 @@ scotopic.data$f <- scotopic.data$transmission/100 * scotopic.data$v
 scotopic.data$type <- "Scotopic"
 ```
 
-Plot of filtered relative luminous efficiency for scotopic vision and Meade 4000 filters
+Plot of filtered relative luminous efficiency for scotopic vision with Meade 4000 filter applied
 ```{r}
-ggplot(data=scotopic.data) +
+p <- ggplot(data=scotopic.data) +
   geom_line(aes(w, f, color=code)) +
   scale_colour_manual(name="Filter", 
                       values=c("yellow",       "yellowgreen", "orange", 
@@ -112,11 +130,14 @@ ggplot(data=scotopic.data) +
                                "#23A",         "#25A",       "#38A", 
                                "#47",          "#56",        "#58", 
                                "#80A",         "#82")) +
-  labs(title="Scotopic Vision using Meade 4000 Filter", 
+  labs(title="Scotopic Vision with Meade 4000 Filter", 
        x="Wavelength [nm]", 
        y="Filtered Relative Luminous Efficiency") +
   theme_bw() +
   coord_cartesian(xlim=c(w.min,w.max))
+p
+
+if (write.plot.enabled) write.plot(p, "Scotopic Vision using Meade 4000 Filter.png")
 ```
 
 ```{r}
@@ -127,10 +148,10 @@ photopic.data$f <- photopic.data$transmission/100 * photopic.data$v
 photopic.data$type <- "Photopic"
 ```
 
-Plot of filtered relative luminous efficiency for photopic vision and Meade 4000 filters
+Plot of filtered relative luminous efficiency for photopic vision and Meade 4000 filter applied
 ```{r}
 
-ggplot(data=photopic.data) +
+p <- ggplot(data=photopic.data) +
   geom_line(aes(w,f,color=code)) +
   scale_colour_manual(name="Filter", 
                       values=c("yellow",       "yellowgreen", "orange", 
@@ -141,11 +162,14 @@ ggplot(data=photopic.data) +
                                "#23A",         "#25A",       "#38A", 
                                "#47",          "#56",        "#58", 
                                "#80A",         "#82")) +
-  labs(title="Photopic Vision using Meade 4000 Filter", 
+  labs(title="Photopic Vision with Meade 4000 Filter", 
        x="Wavelength [nm]", 
        y="Filtered Relative Luminous Efficiency") +
   theme_bw() +
   coord_cartesian(xlim=c(w.min,w.max))
+p
+
+if (write.plot.enabled) write.plot(p, "Photopic Vision with Meade 4000 Filter.png")
 ```
 
 Plot of filtered relative luminous efficiency for scotopic and scotopic vision and Meade 4000 filters
@@ -155,7 +179,7 @@ df <- rbind(scotopic.data, photopic.data)
 # Reorder plot
 df$type <- factor(df$type, levels=c("Scotopic", "Photopic"))
 
-ggplot(data=df) +
+p <- ggplot(data=df) +
   geom_line(aes(w,f,color=type)) +
   scale_color_manual(name="Vision", values=c("black", "grey70")) +
   facet_grid(code ~ .) +
@@ -164,5 +188,8 @@ ggplot(data=df) +
          y="Filtered Relative Luminous Efficiency") +
   theme_bw() +
   coord_cartesian(xlim=c(w.min,w.max))
+p
+
+if (write.plot.enabled) write.plot(p, "Photopic and Scotopic Vision with Meade 4000 Filter.png")
 ```
 
