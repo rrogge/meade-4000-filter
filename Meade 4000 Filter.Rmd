@@ -123,8 +123,8 @@ Plot relative luminous efficency of photopic and scotopic visions
 p <- ggplot(data=vision) +
   geom_line(aes(wavelength,rle,color=factor(type,levels=c("Scotopic", "Photopic")))) +
   scale_color_manual(name="Vision", values=c("black","grey70")) +
-  labs(title="Photopic and Scotopic Vision",
-       x="Wavelength [nm]",
+  labs(title="Photopic and Scotopic Vision", 
+       x="Wavelength [nm]", 
        y="Relative Luminous Efficiency") +
   coord_cartesian(xlim=c(w.min,w.max)) +
   theme_bw()
@@ -227,4 +227,3 @@ photopic.flux <- photopic.data %>%
   arrange(-flux)
 print(data.table(photopic.flux))
 ```
-  
