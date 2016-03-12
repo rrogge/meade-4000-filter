@@ -10,7 +10,7 @@ output:
 
 Set this flag to TRUE when you want to write out plots.
 ```{r}
-write.plot.enabled = T
+write.plot.enabled = F
 ```
 
 ```{r, message=FALSE}
@@ -158,6 +158,9 @@ scotopic.data$rle <- approx(scotopic.vision$wavelength,
 # Add filtered luminous efficiency
 scotopic.data$fle <- scotopic.data$rle * scotopic.data$transmission/100 
 
+# Add vision.
+scotopic.data$vision <- "Scotopic"
+
 p <- ggplot(data=scotopic.data) +
   geom_line(aes(wavelength, fle, color=factor(filter, levels=c(filter.names, "None")))) +
   scale_colour_manual(name="Filter", values=filter.colors, labels=filter.labels) +
@@ -186,7 +189,7 @@ Plot of filtered luminous efficiency for photopic vision with Meade 4000 filter 
 # Select photopic vision data.
 photopic.vision <- subset(vision, type=="Photopic")
 
-# Create data frame with wavelength, transmission, and filter.
+# Create data frame with wavelength, transmission, filter, and vision.
 photopic.data <- data.frame(wavelength = filter$wavelength, 
                             transmission = filter$transmission, 
                             filter = filter$name)
@@ -205,6 +208,9 @@ photopic.data$rle <- approx(photopic.vision$wavelength,
 
 # Add filtered luminous efficiency
 photopic.data$fle <- photopic.data$rle * photopic.data$transmission/100 
+
+# Add vision.
+photopic.data$vision <- "Photopic"
 
 p <- ggplot(data=photopic.data) +
   geom_line(aes(wavelength, fle, color=factor(filter, levels=c(filter.names, "None")))) +
@@ -227,3 +233,26 @@ photopic.flux <- photopic.data %>%
   arrange(-flux)
 print(data.table(photopic.flux))
 ```
+
+Combine scotopic and photopic data
+```{r}
+combined.data <- scotopic.data
+combined.data <- rbind(combined.data, photopic.data)
+combined.data$vision <- factor(combined.data$vision, levels=c("Scotopic", "Photopic"))
+```
+
+```{r}
+p <- ggplot(data=combined.data) +
+  geom_line(aes(wavelength, fle, color=factor(filter, levels=c(filter.names, "None")))) +
+  facet_grid(. ~ vision) +
+  scale_colour_manual(name="Filter", values=filter.colors, labels=filter.labels) +
+  labs(title="Vision / Meade 4000 Filter",
+       x="Wavelength [nm]",
+       y="Filtered Luminous Efficiency") +
+  theme_bw() +
+  coord_cartesian(xlim=c(w.min,w.max))
+p
+
+if (write.plot.enabled) write.plot(p, "Vision and Meade 4000 Filter.png")
+```
+
