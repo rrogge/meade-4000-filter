@@ -10,7 +10,7 @@ output:
 
 Set this flag to TRUE when you want to write out plots.
 ```{r}
-write.plot.enabled = T
+write.plot.enabled = F
 ```
 
 ```{r, message=FALSE}
