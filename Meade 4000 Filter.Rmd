@@ -133,6 +133,24 @@ p
 if (write.plot.enabled) write.plot(p, "Photopic and Scotopic Vision.png")
 ```
 
+Read solar spectral distribution from file
+```{r}
+sun <- read.csv("ASTMG173.csv", header=F, skip=2)[,c(1,3)]
+colnames(sun) <- c("wavelength","irradiance")
+```
+
+Plot solar spectral distribution
+```{r}
+p <- ggplot(data=sun) +
+  geom_line(aes(wavelength,irradiance)) +
+  labs(title="Solar Spectral Irradiance / Air Mass 1.5",
+       x="Wavelength [nm]",
+       y="Irradiance [W/m^2/nm]") +
+  theme_bw() +
+  coord_cartesian(xlim=c(w.min,w.max))
+p
+```
+
 Plot of filtered luminous efficiency for scotopic vision with Meade 4000 filter applied
 ```{r}
 # Select scotopic vision data.
@@ -158,6 +176,12 @@ scotopic.data$rle <- approx(scotopic.vision$wavelength,
 # Add filtered luminous efficiency
 scotopic.data$fle <- scotopic.data$rle * scotopic.data$transmission/100 
 
+# Add solar spectral irrandiance
+scotopic.data$irradiance <- approx(sun$wavelength, 
+                            sun$irradiance, 
+                            filter.wavelength,
+                            rule=2)$y
+
 # Add vision.
 scotopic.data$vision <- "Scotopic"
 
@@ -178,9 +202,24 @@ Flux for scotopic visions with Meade 4000 filter applied
 ```{r}
 scotopic.flux <- scotopic.data %>%
   group_by(filter) %>%
-  summarize(flux=sum(fle) * filter.wavelength.delta) %>%
-  arrange(-flux)
+  summarize(flux=683.002 * sum(fle*irradiance) * filter.wavelength.delta) %>%
+  arrange(-flux) %>%
+  mutate(vision="Scotopic")
 print(data.table(scotopic.flux))
+```
+
+Plot flux for scotopic visions with Meade 4000 filter applied
+```{r}
+p <- ggplot(scotopic.flux) +
+  geom_bar(aes(x=filter,y=flux,fill=factor(filter, levels=c(filter.names, "None"))),stat="identity") +
+  scale_fill_manual(name="Filter", values=filter.colors, labels=filter.labels) +
+  labs(title="Flux / Scotopic Vision / Meade 4000 Filter",
+       x="Wavelength [nm]",
+       y="Flux [lm/W]") +
+  theme_bw()
+p
+
+if (write.plot.enabled) write.plot(p, "Flux for Scotopic Vision with Meade 4000 Filter.png")
 ```
 
 
@@ -209,6 +248,12 @@ photopic.data$rle <- approx(photopic.vision$wavelength,
 # Add filtered luminous efficiency
 photopic.data$fle <- photopic.data$rle * photopic.data$transmission/100 
 
+# Add solar spectral irrandiance
+photopic.data$irradiance <- approx(sun$wavelength, 
+                            sun$irradiance, 
+                            filter.wavelength,
+                            rule=2)$y
+
 # Add vision.
 photopic.data$vision <- "Photopic"
 
@@ -229,9 +274,24 @@ Flux for photopic visions with Meade 4000 filter applied
 ```{r}
 photopic.flux <- photopic.data %>%
   group_by(filter) %>%
-  summarize(flux=sum(fle) * filter.wavelength.delta) %>%
-  arrange(-flux)
+  summarize(flux=683.002 * sum(fle*irradiance) * filter.wavelength.delta) %>%
+  arrange(-flux) %>%
+  mutate(vision="Photopic")
 print(data.table(photopic.flux))
+```
+
+Plot flux for photopic visions with Meade 4000 filter applied
+```{r}
+p <- ggplot(photopic.flux) +
+  geom_bar(aes(x=filter,y=flux,fill=factor(filter, levels=c(filter.names, "None"))),stat="identity") +
+  scale_fill_manual(name="Filter", values=filter.colors, labels=filter.labels) +
+  labs(title="Flux / Photopic Vision / Meade 4000 Filter",
+       x="Wavelength [nm]",
+       y="Flux [lm/W]") +
+  theme_bw()
+p
+
+if (write.plot.enabled) write.plot(p, "Flux for Photopic Vision with Meade 4000 Filter.png")
 ```
 
 Combine scotopic and photopic data
@@ -241,6 +301,7 @@ combined.data <- rbind(combined.data, photopic.data)
 combined.data$vision <- factor(combined.data$vision, levels=c("Scotopic", "Photopic"))
 ```
 
+Plot combined scotopic and photopic data
 ```{r}
 p <- ggplot(data=combined.data) +
   geom_line(aes(wavelength, fle, color=factor(filter, levels=c(filter.names, "None")))) +
@@ -256,3 +317,24 @@ p
 if (write.plot.enabled) write.plot(p, "Vision and Meade 4000 Filter.png")
 ```
 
+Combine scotopic and photopic flux
+```{r}
+combined.flux <- scotopic.flux
+combined.flux <- rbind(combined.flux, photopic.flux)
+combined.flux$vision <- factor(combined.flux$vision, levels=c("Scotopic", "Photopic"))
+```
+
+Plot of combined scotopic and photopic flux
+```{r}
+p <- ggplot(combined.flux) +
+  geom_bar(aes(x=filter,y=flux,fill=factor(filter, levels=c(filter.names, "None"))),stat="identity") +
+  scale_fill_manual(name="Filter", values=filter.colors, labels=filter.labels) +
+  facet_grid(. ~ vision) +
+  labs(title="Flux / Meade 4000 Filter",
+       x="Wavelength [nm]",
+       y="Flux [lm/W]") +
+  theme_bw()
+p
+
+if (write.plot.enabled) write.plot(p, "Flux with Meade 4000 Filter.png")
+```
