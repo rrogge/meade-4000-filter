@@ -200,9 +200,11 @@ if (write.plot.enabled) write.plot(p, "Scotopic Vision and Meade 4000 Filter.png
 
 Flux for scotopic visions with Meade 4000 filter applied
 ```{r}
+scotopic.k.m <- 1699
+
 scotopic.flux <- scotopic.data %>%
   group_by(filter) %>%
-  summarize(flux=683.002 * sum(fle*irradiance) * filter.wavelength.delta) %>%
+  summarize(flux=scotopic.k.m * sum(rle * transmission / 100 *irradiance) * filter.wavelength.delta) %>%
   arrange(-flux) %>%
   mutate(vision="Scotopic")
 print(data.table(scotopic.flux))
@@ -272,9 +274,11 @@ if (write.plot.enabled) write.plot(p, "Photopic Vision and Meade 4000 Filter.png
 
 Flux for photopic visions with Meade 4000 filter applied
 ```{r}
+photopic.k.m <- 683
+
 photopic.flux <- photopic.data %>%
   group_by(filter) %>%
-  summarize(flux=683.002 * sum(fle*irradiance) * filter.wavelength.delta) %>%
+  summarize(flux=683 * sum(rle * transmission / 100 * irradiance) * filter.wavelength.delta) %>%
   arrange(-flux) %>%
   mutate(vision="Photopic")
 print(data.table(photopic.flux))
