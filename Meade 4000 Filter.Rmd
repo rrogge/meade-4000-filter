@@ -20,261 +20,28 @@ library(ggplot2)
 library(jsonlite)
 ```
 
-Filter names
-```{r}
-filter.names <- c("8"  , "11" ,  "21", 
-                  "23A", "25A", "38A", 
-                  "47" , "56" , "58" , 
-                  "80A", "82A")
+```{r, filter.names, echo=F}
+filter.names <- c(
+  "8"  , "11" , "21", "23A", "25A", "38A", 
+  "47" , "56" , "58", "80A", "82A"
+)
 ```
 
-Filter colors
-```{r}
-filter.colors <- c("yellow",       "yellowgreen", "orange",
-                   "red",          "red3",        "blue",
-                   "purple",       "green",       "green3",
-                   "deepskyblue3", "skyblue",     "black")
-
+```{r, filter.color, echo=F}
+filter.colors <- c(
+  "yellow", "yellowgreen", "orange", "red",          "red3",     "blue",
+  "purple", "green",       "green3", "deepskyblue3", "skyblue",  "black"
+)
 ```
 
-Filter labels
-```{r}
-filter.labels <- c("#8",   "#11",  "#21",
-                   "#23A", "#25A", "#38A",
-                   "#47",  "#56",  "#58",
-                   "#80A", "#82A", "None")
-
+```{r filter.labels, echo=F}
+filter.labels <- c(
+  "#8",   "#11",  "#21", "#23A", "#25A", "#38A",
+  "#47",  "#56",  "#58", "#80A", "#82A", "None"
+)
 ```
 
-Filter wavelength range
-```{r}
-filter.wavelength.delta <- 1
-filter.wavelength <- seq(200, 900, filter.wavelength.delta)
-```
-
-Function to read in filter data
-```{r}
-read.filter <- function(name) {
-  read.csv(name, col.names=c("wavelength","transmission","X"))[,1:2]
-}
-```
-
-Function to preprocess filter data
-```{r}
-preprocess <- function(df, wavelength, name) {
-  t <- approx(df$wavelength, df$transmission, wavelength)$y
-  data.frame(wavelength=wavelength, transmission=t, name=name)
-}
-```
-
-Read Meade 4000 filter set data from files
-```{r}
-filter <- data.frame(wavelength=c(), transmission=c(), name=c())
-for (name in filter.names) {
-  filename <- paste0("Meade 4000 Filter ",name,".csv")
-  filter <- rbind(filter, preprocess(read.filter(filename), filter.wavelength, name))
-}
-```
-
-Function used to write plot to PNG file
-```{r}
-write.plot <- function(p, filename, width=1024, height=576, font.size=16) {
-  png(filename,width, height)
-  print(p + theme_bw(base_size=font.size))
-  dev.off()
-}
-```
-
-Plot transmission of Meade 4000 filters
-```{r}
-p <- ggplot(data=filter) +
-  geom_line(aes(wavelength,transmission,color=factor(name, levels=c(filter.names, "None")))) +
-  scale_colour_manual(name="Filter", values=filter.colors, labels=filter.labels) +
-  labs(title="Meade 4000 Filter", x="Wavelength [nm]", y="Transmission [%]") +
-  theme_bw() +
-  coord_cartesian(xlim=c(250,800))
-p
-
-if (write.plot.enabled) write.plot(p, "Meade 4000 Filter.png")
-```
-
-Function to read vision data from file
-```{r}
-read.vision <- function(filename, type) {
-  df <- read.csv(filename)
-  df$type <- type
-  df
-}
-```
-
-Read data for scotopic and photopic vision from file
-```{r}
-vision <- rbind(read.vision("scvle.csv", "Scotopic"), read.vision("vljve.csv", "Photopic"))
-vision$type = factor(vision$type, levels=c("Scotopic", "Photopic")) # Reorder vision type
-```
-
-Wavelength limits for plots
-```{r}
-w.min <- max(min(vision$wavelength), 380)
-w.max <- min(max(vision$wavelength), 720)
-w.range <- seq(w.min, w.max)
-```
-
-Plot relative luminous efficency of photopic and scotopic visions
-```{r}
-p <- ggplot(data=vision) +
-  geom_line(aes(wavelength,rle,color=type)) +
-  scale_color_manual(name="Vision", values=c("black","grey70")) +
-  labs(title="Photopic and Scotopic Vision", 
-       x="Wavelength [nm]", 
-       y="Relative Luminous Efficiency") +
-  coord_cartesian(xlim=c(w.min,w.max)) +
-  theme_bw()
-p
-
-if (write.plot.enabled) write.plot(p, "Photopic and Scotopic Vision.png")
-```
-
-## Visual Observing of Sunlight
-
-Read solar spectral distribution from file
-```{r}
-sun <- read.csv("ASTMG173.csv", header=F, skip=2)[,c(1,3)]
-colnames(sun) <- c("wavelength","irradiance")
-```
-
-Plot solar spectral distribution
-```{r}
-p <- ggplot(data=sun) +
-  geom_line(aes(wavelength,irradiance)) +
-  labs(title="Solar Spectral Irradiance / Air Mass 1.5",
-       x="Wavelength [nm]",
-       y="Irradiance [W/m^2/nm]") +
-  theme_bw() +
-  coord_cartesian(xlim=c(w.min,w.max))
-p
-```
-
-Function to set up data frame for visual observing of Sun
-```{r}
-sun.setup <- function(filter, vision, vision.type, sun) {
-  
-  subvision <- subset(vision, type==vision.type)
-
-  # Create data frame with wavelength, transmission, filter.
-  df <- data.frame(wavelength = filter$wavelength, 
-                   transmission = filter$transmission, 
-                   filter = filter$name)
-
-  # Add plain vision data.
-  df <- rbind(df, data.frame(wavelength = seq(min(filter$wavelength), max(filter$wavelength)),
-                             transmission = 100, 
-                             filter = "None"))
-
-  # Add relative luminous efficiency.
-  df$rle <- approx(subvision$wavelength, 
-                   subvision$rle, 
-                   df$wavelength, 
-                   rule=2)$y
-
-  # Add filtered luminous efficiency
-  df$fle <- df$rle * df$transmission/100 
-
-  # Add solar spectral irrandiance
-  df$irradiance <- approx(sun$wavelength, 
-                          sun$irradiance, 
-                          df$wavelength,
-                          rule=2)$y
-
-  # Add vision.
-  df$vision <- vision.type
-
-  # Return.
-  df
-}
-```
-
-Visual observing using Meade 4000 filter set
-```{r}
-sun.visual <- rbind(sun.setup(filter,vision,"Scotopic",sun), sun.setup(filter,vision,"Photopic",sun))
-sun.visual$vision <- factor(sun.visual$vision, levels=c("Scotopic","Photopic"))
-```
-
-Plot of relative luminous efficiency for visual observing with Meade 4000 filter set
-```{r}
-p <- ggplot(data=sun.visual) +
-  geom_line(aes(wavelength, fle, color=factor(filter, levels=c(filter.names, "None")))) +
-  scale_colour_manual(name="Filter", values=filter.colors, labels=filter.labels) +
-  facet_grid(. ~ vision) +
-  labs(title="Visual Observing with Meade 4000 Filter Set",
-       x="Wavelength [nm]",
-       y="Relative Luminous Efficiency") +
-  theme_bw() +
-  coord_cartesian(xlim=c(w.min,w.max))
-p
-
-if (write.plot.enabled) write.plot(p, "Visual Observing with Meade 4000 Filter Set.png")
-```
-
-Flux for visual observing with Meade 4000 filter set
-```{r}
-sun.flux <- sun.visual %>%
-  
-  # Group by vision and filter.
-  group_by(vision, filter) %>%
-  
-  # Add vision specific constant.
-  mutate(k = ifelse(vision=="Scotopic",1699,683)) %>%
-  
-  # Calculate flux.
-  summarize(flux=sum(fle*irradiance*k)) %>%
-  
-  # Sort by flux.
-  arrange(-flux)
-
-print(data.table(sun.flux))
-```
-
-Plot flux for scotopic visions with Meade 4000 filter applied
-```{r}
-p <- ggplot(sun.flux) +
-  geom_bar(aes(x=filter,y=flux,fill=factor(filter, levels=c(filter.names, "None"))),stat="identity") +
-  scale_fill_manual(name="Filter", values=filter.colors, labels=filter.labels) +
-  facet_grid(. ~ vision) +
-  labs(title="Visual Observing Sunlight / Meade 4000 Filter",
-       x="Wavelength [nm]",
-       y="Flux [lm/W]") +
-  theme_bw()
-p
-
-if (write.plot.enabled) write.plot(p, "Visual Observing Sunlight - Meade 4000 Filter.png")
-```
-
-## Visual Observing of Jupiter
-
-Read Jupiter NEB/NTrZ reflectance data from file
-```{r}
-neb <- read.csv("NEB.csv")
-ntrz <- read.csv("NTrZ.csv")
-```
-
-Plot of Jupiter NEB/NTrZ reflectance
-```{r}
-p <- ggplot(data=rbind(neb,ntrz)) +
-  geom_line(aes(wavelength,100*reflectance,color=feature)) +
-  scale_color_discrete(name="Feature") +
-  labs(title="Jupiter Reflectance",
-       x="Wavelength [nm]",
-       y="Reflectance [%]") +
-  theme_bw() +
-  coord_cartesian(xlim=c(w.min,w.max))
-p
-
-if (write.plot.enabled) write.plot(p, "Jupiter NTrZ Reflectance.png")
-```
-
-Function to set up data frame for visual observing of Jupiter
-```{r}
+```{r jupiter.setup, echo=F}
 jupiter.setup <- function(filter, vision, vision.type, neb, ntrz) {
   
   subvision <- subset(vision, type==vision.type)
@@ -317,6 +84,218 @@ jupiter.setup <- function(filter, vision, vision.type, neb, ntrz) {
 }
 ```
 
+```{r preprocess.filter, echo=F}
+preprocess.filter <- function(df, wavelength, name) {
+  data.frame(
+    wavelength = wavelength, 
+    transmission = approx(df$wavelength, df$transmission, wavelength)$y, 
+    name=name
+  )
+}
+```
+
+```{r read.filter, echo=F}
+read.filter <- function(name) {
+  read.csv(name, col.names=c("wavelength","transmission","X"))[,1:2]
+}
+```
+
+```{r read.vision, echo=F}
+read.vision <- function(filename, type) {
+  df <- read.csv(filename)
+  df$type <- type
+  df
+}
+```
+
+```{r sun.setup, echo=F}
+sun.setup <- function(filter, vision, vision.type, sun) {
+  
+  subvision <- subset(vision, type==vision.type)
+
+  # Create data frame with wavelength, transmission, filter.
+  df <- data.frame(wavelength = filter$wavelength, 
+                   transmission = filter$transmission, 
+                   filter = filter$name)
+
+  # Add plain vision data.
+  df <- rbind(df, data.frame(wavelength = seq(min(filter$wavelength), max(filter$wavelength)),
+                             transmission = 100, 
+                             filter = "None"))
+
+  # Add relative luminous efficiency.
+  df$rle <- approx(subvision$wavelength, 
+                   subvision$rle, 
+                   df$wavelength, 
+                   rule=2)$y
+
+  # Add filtered luminous efficiency
+  df$fle <- df$rle * df$transmission/100 
+
+  # Add solar spectral irrandiance
+  df$irradiance <- approx(sun$wavelength, 
+                          sun$irradiance, 
+                          df$wavelength,
+                          rule=2)$y
+
+  # Add vision.
+  df$vision <- vision.type
+
+  # Return.
+  df
+}
+```
+
+```{r write.plot, echo=F}
+write.plot <- function(p, filename, width=1024, height=576, font.size=16) {
+  png(filename,width, height)
+  print(p + theme_bw(base_size=font.size))
+  dev.off()
+}
+```
+
+## Transmission
+
+Read Meade 4000 filter set data from files
+```{r}
+filter <- data.frame(wavelength=c(), transmission=c(), name=c())
+for (name in filter.names) {
+  filename <- paste0("Meade 4000 Filter ",name,".csv")
+  filter <- rbind(filter, preprocess.filter(read.filter(filename), seq(200,900), name))
+}
+```
+
+Plot transmission of Meade 4000 filter set
+```{r}
+p <- ggplot(data=filter) +
+  geom_line(aes(wavelength,transmission,color=factor(name, levels=c(filter.names, "None")))) +
+  scale_colour_manual(name="Filter", values=filter.colors, labels=filter.labels) +
+  labs(title="Meade 4000 Filter", x="Wavelength [nm]", y="Transmission [%]") +
+  theme_bw() +
+  coord_cartesian(xlim=c(250,800))
+p
+
+if (write.plot.enabled) write.plot(p, "Meade 4000 Filter.png")
+```
+
+## Scotopic/Photopic Vision
+
+Read data for scotopic and photopic vision from file
+```{r}
+vision <- rbind(read.vision("scvle.csv", "Scotopic"), read.vision("vljve.csv", "Photopic"))
+vision$type = factor(vision$type, levels=c("Scotopic", "Photopic")) # Reorder vision type
+```
+
+Wavelength limits for plots
+```{r}
+w.min <- max(min(vision$wavelength), 380)
+w.max <- min(max(vision$wavelength), 720)
+```
+
+Plot relative luminous efficency of photopic and scotopic vision
+```{r}
+p <- ggplot(data=vision) +
+  geom_line(aes(wavelength,rle,color=type)) +
+  scale_color_manual(name="Vision", values=c("black","grey70")) +
+  labs(title="Photopic/Scotopic Vision", 
+       x="Wavelength [nm]", 
+       y="Relative Luminous Efficiency") +
+  coord_cartesian(xlim=c(w.min,w.max)) +
+  theme_bw()
+p
+
+if (write.plot.enabled) write.plot(p, "Photopic and Scotopic Vision.png")
+```
+
+## Visual Observing of Sunlit Object
+
+Read solar spectral distribution from file
+```{r}
+sun <- read.csv("ASTMG173.csv", header=F, skip=2)[,c(1,3)]
+colnames(sun) <- c("wavelength","irradiance")
+```
+
+Set the average solar irradiance between 630 and 690 nm to one
+```{r}
+N <- mean(sun$irradiance[which(sun$wavelength == 630):which(sun$wavelength == 690)])
+sun$irradiance <- sun$irradiance / N
+```
+
+Plot solar spectral distribution
+```{r}
+p <- ggplot(data=sun) +
+  geom_line(aes(wavelength,irradiance)) +
+  labs(title="Solar Spectral Irradiance / Air Mass 1.5",
+       x="Wavelength [nm]",
+       y="Irradiance") +
+  theme_bw() +
+  coord_cartesian(xlim=c(w.min,w.max))
+p
+```
+
+Visual observing of sunlit object
+```{r}
+sun.visual <- rbind(sun.setup(filter,vision,"Scotopic",sun), sun.setup(filter,vision,"Photopic",sun))
+sun.visual$vision <- factor(sun.visual$vision, levels=c("Scotopic","Photopic")) # Reorder vision.
+```
+
+Flux for visual observing of sunlit object
+```{r}
+sun.flux <- sun.visual %>%
+  
+  # Group by vision and filter.
+  group_by(vision, filter) %>%
+  
+  # Add vision specific constant.
+  mutate(k = ifelse(vision=="Scotopic",1699,683)) %>%
+  
+  # Calculate flux.
+  summarize(flux=sum(fle*irradiance*k)) %>%
+  
+  # Sort by flux.
+  arrange(-flux)
+
+print(data.table(sun.flux))
+```
+
+Plot flux for visual observing of sunlit object
+```{r}
+p <- ggplot(sun.flux) +
+  geom_bar(aes(x=filter,y=flux,fill=factor(filter, levels=c(filter.names, "None"))),stat="identity") +
+  scale_fill_manual(name="Filter", values=filter.colors, labels=filter.labels) +
+  facet_grid(. ~ vision) +
+  labs(title="Visual Observing of Sunlit Object",
+       x="Wavelength [nm]",
+       y="Flux [lm/W]") +
+  theme_bw()
+p
+
+if (write.plot.enabled) write.plot(p, "Visual Observing of Sunlit Object.png")
+```
+
+## Visual Observing of Jupiter
+
+Read Jupiter NEB/NTrZ reflectance data from file
+```{r}
+neb <- read.csv("NEB.csv")
+ntrz <- read.csv("NTrZ.csv")
+```
+
+Plot of Jupiter NEB/NTrZ reflectance
+```{r}
+p <- ggplot(data=rbind(neb,ntrz)) +
+  geom_line(aes(wavelength,100*reflectance,color=feature)) +
+  scale_color_discrete(name="Feature") +
+  labs(title="Jupiter Reflectance",
+       x="Wavelength [nm]",
+       y="Reflectance [%]") +
+  theme_bw() +
+  coord_cartesian(xlim=c(w.min,w.max))
+p
+
+if (write.plot.enabled) write.plot(p, "Jupiter NEB and NTrZ Reflectance.png")
+```
+
 Combine Jupiter visual data for scotopic and photopic vision
 ```{r}
 jupiter.visual <- rbind(
@@ -325,7 +304,7 @@ jupiter.visual <- rbind(
 )
 ```
 
-Flux and contrast for visual observing Jupiter with Meade 4000 filter set
+Flux and contrast for visual observing Jupiter
 ```{r}
 jupiter.flux <- jupiter.visual %>%
   
@@ -353,7 +332,7 @@ jupiter.flux <- jupiter.visual %>%
 print(data.table(jupiter.flux))
 ```
 
-Plot flux and contrast for visual observing Jupiter with Meade 4000 filter set
+Plot relativ flux and contrast for visual observing Jupiter 
 ```{r}
 p <- ggplot(jupiter.flux) +
   geom_bar(aes(x=filter,y=michelson,fill=factor(filter, levels=c(filter.names, "None"))),stat="identity") +
@@ -368,3 +347,40 @@ p
 if (write.plot.enabled) write.plot(p, "Jupiter NEB NTrZ Contrast.png")
 ```
 
+## Appendix
+
+Filter names
+```{r, filter.names, echo=T}
+```
+
+Filter colors
+```{r, filter.color, echo=T}
+```
+
+Filter labels
+```{r filter.labels, echo=T}
+```
+
+Function to set up data frame for visula observing Jupiter
+```{r jupiter.setup, echo=T}
+```
+
+Function to preprocess filter data
+```{r preprocess.filter, echo=T}
+```
+
+Function to read in filter data
+```{r read.filter, echo=T}
+```
+
+Function to read vision data from file
+```{r read.vision, echo=T}
+```
+
+Function to set up data frame for visual observing of sunlight
+```{r sun.setup, echo=T}
+```
+
+Function used to write plot to PNG file
+```{r write.plot, echo=T}
+```
