@@ -17,6 +17,7 @@ write.plot.enabled = F
 library(data.table)
 library(dplyr)
 library(ggplot2)
+library(jsonlite)
 ```
 
 Filter names
@@ -108,20 +109,21 @@ read.vision <- function(filename, type) {
 
 Read data for scotopic and photopic vision from file
 ```{r}
-vision <- read.vision("scvle.csv", "Scotopic")
-vision <- rbind(vision, read.vision("vljve.csv", "Photopic"))
+vision <- rbind(read.vision("scvle.csv", "Scotopic"), read.vision("vljve.csv", "Photopic"))
+vision$type = factor(vision$type, levels=c("Scotopic", "Photopic")) # Reorder vision type
 ```
 
 Wavelength limits for plots
 ```{r}
 w.min <- max(min(vision$wavelength), 380)
 w.max <- min(max(vision$wavelength), 720)
+w.range <- seq(w.min, w.max)
 ```
 
 Plot relative luminous efficency of photopic and scotopic visions
 ```{r}
 p <- ggplot(data=vision) +
-  geom_line(aes(wavelength,rle,color=factor(type,levels=c("Scotopic", "Photopic")))) +
+  geom_line(aes(wavelength,rle,color=type)) +
   scale_color_manual(name="Vision", values=c("black","grey70")) +
   labs(title="Photopic and Scotopic Vision", 
        x="Wavelength [nm]", 
@@ -132,6 +134,8 @@ p
 
 if (write.plot.enabled) write.plot(p, "Photopic and Scotopic Vision.png")
 ```
+
+## Visual Observing of Sunlight
 
 Read solar spectral distribution from file
 ```{r}
@@ -151,194 +155,216 @@ p <- ggplot(data=sun) +
 p
 ```
 
-Plot of filtered luminous efficiency for scotopic vision with Meade 4000 filter applied
+Function to set up data frame for visual observing of Sun
 ```{r}
-# Select scotopic vision data.
-scotopic.vision <- subset(vision, type=="Scotopic")
+sun.setup <- function(filter, vision, vision.type, sun) {
+  
+  subvision <- subset(vision, type==vision.type)
 
-# Create data frame with wavelength, transmission, and filter.
-scotopic.data <- data.frame(wavelength = filter$wavelength, 
-                            transmission = filter$transmission, 
-                            filter = filter$name)
+  # Create data frame with wavelength, transmission, filter.
+  df <- data.frame(wavelength = filter$wavelength, 
+                   transmission = filter$transmission, 
+                   filter = filter$name)
 
-# Add plain vision data.
-scotopic.data <- rbind(scotopic.data, data.frame(wavelength = filter.wavelength,
-                                                 transmission = 100, 
-                                                 filter = "None"))
+  # Add plain vision data.
+  df <- rbind(df, data.frame(wavelength = seq(min(filter$wavelength), max(filter$wavelength)),
+                             transmission = 100, 
+                             filter = "None"))
 
-# Add relative luminous efficiency.
-scotopic.data$rle <- approx(scotopic.vision$wavelength, 
-                            scotopic.vision$rle, 
-                            filter.wavelength, 
-                            yleft=0, 
-                            yright=0)$y
+  # Add relative luminous efficiency.
+  df$rle <- approx(subvision$wavelength, 
+                   subvision$rle, 
+                   df$wavelength, 
+                   rule=2)$y
 
-# Add filtered luminous efficiency
-scotopic.data$fle <- scotopic.data$rle * scotopic.data$transmission/100 
+  # Add filtered luminous efficiency
+  df$fle <- df$rle * df$transmission/100 
 
-# Add solar spectral irrandiance
-scotopic.data$irradiance <- approx(sun$wavelength, 
-                            sun$irradiance, 
-                            filter.wavelength,
-                            rule=2)$y
+  # Add solar spectral irrandiance
+  df$irradiance <- approx(sun$wavelength, 
+                          sun$irradiance, 
+                          df$wavelength,
+                          rule=2)$y
 
-# Add vision.
-scotopic.data$vision <- "Scotopic"
+  # Add vision.
+  df$vision <- vision.type
 
-p <- ggplot(data=scotopic.data) +
+  # Return.
+  df
+}
+```
+
+Visual observing using Meade 4000 filter set
+```{r}
+sun.visual <- rbind(sun.setup(filter,vision,"Scotopic",sun), sun.setup(filter,vision,"Photopic",sun))
+sun.visual$vision <- factor(sun.visual$vision, levels=c("Scotopic","Photopic"))
+```
+
+Plot of relative luminous efficiency for visual observing with Meade 4000 filter set
+```{r}
+p <- ggplot(data=sun.visual) +
   geom_line(aes(wavelength, fle, color=factor(filter, levels=c(filter.names, "None")))) +
   scale_colour_manual(name="Filter", values=filter.colors, labels=filter.labels) +
-  labs(title="Scotopic Vision / Meade 4000 Filter",
+  facet_grid(. ~ vision) +
+  labs(title="Visual Observing with Meade 4000 Filter Set",
        x="Wavelength [nm]",
-       y="Filtered Luminous Efficiency") +
+       y="Relative Luminous Efficiency") +
   theme_bw() +
   coord_cartesian(xlim=c(w.min,w.max))
 p
 
-if (write.plot.enabled) write.plot(p, "Scotopic Vision and Meade 4000 Filter.png")
+if (write.plot.enabled) write.plot(p, "Visual Observing with Meade 4000 Filter Set.png")
 ```
 
-Flux for scotopic visions with Meade 4000 filter applied
+Flux for visual observing with Meade 4000 filter set
 ```{r}
-scotopic.k.m <- 1699
+sun.flux <- sun.visual %>%
+  
+  # Group by vision and filter.
+  group_by(vision, filter) %>%
+  
+  # Add vision specific constant.
+  mutate(k = ifelse(vision=="Scotopic",1699,683)) %>%
+  
+  # Calculate flux.
+  summarize(flux=sum(fle*irradiance*k)) %>%
+  
+  # Sort by flux.
+  arrange(-flux)
 
-scotopic.flux <- scotopic.data %>%
-  group_by(filter) %>%
-  summarize(flux=scotopic.k.m * sum(rle * transmission / 100 *irradiance) * filter.wavelength.delta) %>%
-  arrange(-flux) %>%
-  mutate(vision="Scotopic")
-print(data.table(scotopic.flux))
+print(data.table(sun.flux))
 ```
 
 Plot flux for scotopic visions with Meade 4000 filter applied
 ```{r}
-p <- ggplot(scotopic.flux) +
+p <- ggplot(sun.flux) +
   geom_bar(aes(x=filter,y=flux,fill=factor(filter, levels=c(filter.names, "None"))),stat="identity") +
   scale_fill_manual(name="Filter", values=filter.colors, labels=filter.labels) +
-  labs(title="Flux / Scotopic Vision / Meade 4000 Filter",
+  facet_grid(. ~ vision) +
+  labs(title="Visual Observing Sunlight / Meade 4000 Filter",
        x="Wavelength [nm]",
        y="Flux [lm/W]") +
   theme_bw()
 p
 
-if (write.plot.enabled) write.plot(p, "Flux for Scotopic Vision with Meade 4000 Filter.png")
+if (write.plot.enabled) write.plot(p, "Visual Observing Sunlight - Meade 4000 Filter.png")
 ```
 
+## Visual Observing of Jupiter
 
-Plot of filtered luminous efficiency for photopic vision with Meade 4000 filter applied
+Read Jupiter NEB/NTrZ reflectance data from file
 ```{r}
-# Select photopic vision data.
-photopic.vision <- subset(vision, type=="Photopic")
+neb <- read.csv("NEB.csv")
+ntrz <- read.csv("NTrZ.csv")
+```
 
-# Create data frame with wavelength, transmission, filter, and vision.
-photopic.data <- data.frame(wavelength = filter$wavelength, 
-                            transmission = filter$transmission, 
-                            filter = filter$name)
-
-# Add plain vision data.
-photopic.data <- rbind(photopic.data, data.frame(wavelength = filter.wavelength,
-                                                 transmission = 100, 
-                                                 filter = "None"))
-
-# Add relative luminous efficiency.
-photopic.data$rle <- approx(photopic.vision$wavelength, 
-                            photopic.vision$rle, 
-                            filter.wavelength, 
-                            yleft=0, 
-                            yright=0)$y
-
-# Add filtered luminous efficiency
-photopic.data$fle <- photopic.data$rle * photopic.data$transmission/100 
-
-# Add solar spectral irrandiance
-photopic.data$irradiance <- approx(sun$wavelength, 
-                            sun$irradiance, 
-                            filter.wavelength,
-                            rule=2)$y
-
-# Add vision.
-photopic.data$vision <- "Photopic"
-
-p <- ggplot(data=photopic.data) +
-  geom_line(aes(wavelength, fle, color=factor(filter, levels=c(filter.names, "None")))) +
-  scale_colour_manual(name="Filter", values=filter.colors, labels=filter.labels) +
-  labs(title="Photopic Vision / Meade 4000 Filter",
+Plot of Jupiter NEB/NTrZ reflectance
+```{r}
+p <- ggplot(data=rbind(neb,ntrz)) +
+  geom_line(aes(wavelength,100*reflectance,color=feature)) +
+  scale_color_discrete(name="Feature") +
+  labs(title="Jupiter Reflectance",
        x="Wavelength [nm]",
-       y="Filtered Luminous Efficiency") +
+       y="Reflectance [%]") +
   theme_bw() +
   coord_cartesian(xlim=c(w.min,w.max))
 p
 
-if (write.plot.enabled) write.plot(p, "Photopic Vision and Meade 4000 Filter.png")
+if (write.plot.enabled) write.plot(p, "Jupiter NTrZ Reflectance.png")
 ```
 
-Flux for photopic visions with Meade 4000 filter applied
+Function to set up data frame for visual observing of Jupiter
 ```{r}
-photopic.k.m <- 683
+jupiter.setup <- function(filter, vision, vision.type, neb, ntrz) {
+  
+  subvision <- subset(vision, type==vision.type)
 
-photopic.flux <- photopic.data %>%
-  group_by(filter) %>%
-  summarize(flux=683 * sum(rle * transmission / 100 * irradiance) * filter.wavelength.delta) %>%
-  arrange(-flux) %>%
-  mutate(vision="Photopic")
-print(data.table(photopic.flux))
+  # Create data frame with wavelength, transmission, filter.
+  df <- data.frame(wavelength = filter$wavelength, 
+                   transmission = filter$transmission, 
+                   filter = filter$name)
+  
+  # Add plain vision data.
+  df <- rbind(df, data.frame(wavelength = seq(min(df$wavelength), max(df$wavelength)), 
+                             transmission = 100, 
+                             filter = "None"))
+  
+  # Add relative luminous efficiency.
+  df$rle <- approx(subvision$wavelength, 
+                   subvision$rle, 
+                   df$wavelength, 
+                   rule=2)$y
+
+  # Add filtered luminous efficiency.
+  df$fle <- df$rle * df$transmission / 100
+
+  # Add Jupiter NEB reflectance.
+  df$neb <- approx(neb$wavelength, 
+                   neb$reflectance,
+                   df$wavelength,
+                   rule=2)$y
+
+  # Add Jupiter NTrZ reflectance.
+  df$ntrz <- approx(ntrz$wavelength, 
+                    ntrz$reflectance,
+                    df$wavelength,
+                    rule=2)$y
+
+  # Add vision.
+  df$vision <- vision.type
+
+  df
+}
 ```
 
-Plot flux for photopic visions with Meade 4000 filter applied
+Combine Jupiter visual data for scotopic and photopic vision
 ```{r}
-p <- ggplot(photopic.flux) +
-  geom_bar(aes(x=filter,y=flux,fill=factor(filter, levels=c(filter.names, "None"))),stat="identity") +
+jupiter.visual <- rbind(
+  jupiter.setup(filter, vision, "Scotopic", neb, ntrz), 
+  jupiter.setup(filter, vision, "Photopic", neb, ntrz)
+)
+```
+
+Flux and contrast for visual observing Jupiter with Meade 4000 filter set
+```{r}
+jupiter.flux <- jupiter.visual %>%
+  
+  # Adjust vision order.
+  mutate(vision=factor(vision, levels=c("Scotopic","Photopic"))) %>%
+  
+    # Add vision specific constant.
+  mutate(k = ifelse(vision=="Scotopic",1699,683)) %>%
+
+  # Group by vision and filter.
+  group_by(vision, filter) %>%
+  
+  # Calculate flux.
+  summarize(flux.neb=sum(k*fle*neb), flux.ntrz=sum(k*fle*ntrz)) %>%
+  
+  # Calculate Michelson contrast.
+  mutate(michelson=(flux.ntrz-flux.neb)/(flux.ntrz+flux.neb)) %>%
+  
+  # Calculate Weber contrast.
+  mutate(weber=(flux.ntrz-flux.neb)/(flux.ntrz)) %>%
+  
+  # Sort by contrast.
+  arrange(-michelson)
+
+print(data.table(jupiter.flux))
+```
+
+Plot flux and contrast for visual observing Jupiter with Meade 4000 filter set
+```{r}
+p <- ggplot(jupiter.flux) +
+  geom_bar(aes(x=filter,y=michelson,fill=factor(filter, levels=c(filter.names, "None"))),stat="identity") +
   scale_fill_manual(name="Filter", values=filter.colors, labels=filter.labels) +
-  labs(title="Flux / Photopic Vision / Meade 4000 Filter",
+  facet_grid(. ~ vision) +
+  labs(title="Jupiter NEB/NTrz Contrast",
        x="Wavelength [nm]",
-       y="Flux [lm/W]") +
+       y="Contrast") +
   theme_bw()
 p
 
-if (write.plot.enabled) write.plot(p, "Flux for Photopic Vision with Meade 4000 Filter.png")
+if (write.plot.enabled) write.plot(p, "Jupiter NEB NTrZ Contrast.png")
 ```
 
-Combine scotopic and photopic data
-```{r}
-combined.data <- scotopic.data
-combined.data <- rbind(combined.data, photopic.data)
-combined.data$vision <- factor(combined.data$vision, levels=c("Scotopic", "Photopic"))
-```
-
-Plot combined scotopic and photopic data
-```{r}
-p <- ggplot(data=combined.data) +
-  geom_line(aes(wavelength, fle, color=factor(filter, levels=c(filter.names, "None")))) +
-  facet_grid(. ~ vision) +
-  scale_colour_manual(name="Filter", values=filter.colors, labels=filter.labels) +
-  labs(title="Vision / Meade 4000 Filter",
-       x="Wavelength [nm]",
-       y="Filtered Luminous Efficiency") +
-  theme_bw() +
-  coord_cartesian(xlim=c(w.min,w.max))
-p
-
-if (write.plot.enabled) write.plot(p, "Vision and Meade 4000 Filter.png")
-```
-
-Combine scotopic and photopic flux
-```{r}
-combined.flux <- scotopic.flux
-combined.flux <- rbind(combined.flux, photopic.flux)
-combined.flux$vision <- factor(combined.flux$vision, levels=c("Scotopic", "Photopic"))
-```
-
-Plot of combined scotopic and photopic flux
-```{r}
-p <- ggplot(combined.flux) +
-  geom_bar(aes(x=filter,y=flux,fill=factor(filter, levels=c(filter.names, "None"))),stat="identity") +
-  scale_fill_manual(name="Filter", values=filter.colors, labels=filter.labels) +
-  facet_grid(. ~ vision) +
-  labs(title="Flux / Meade 4000 Filter",
-       x="Wavelength [nm]",
-       y="Flux [lm/W]") +
-  theme_bw()
-p
-
-if (write.plot.enabled) write.plot(p, "Flux with Meade 4000 Filter.png")
-```
