@@ -20,62 +20,54 @@ library(ggplot2)
 library(jsonlite)
 ```
 
+```{r approx.y, echo=F}
+approx.y <- function(x, y = NULL, xout, rule=2, ...) {
+  approx(x,y=y,xout=xout,rule=rule,...)$y
+}
+```
+
 ```{r, filter.names, echo=F}
 filter.names <- c(
-  "8"  , "11" , "21", "23A", "25A", "38A", 
-  "47" , "56" , "58", "80A", "82A"
+  "8"  , "11" , "21", "23A", "25A", "38A", "47" , "56" , "58", "80A", "82A"
 )
 ```
 
 ```{r, filter.color, echo=F}
 filter.colors <- c(
-  "yellow", "yellowgreen", "orange", "red",          "red3",     "blue",
-  "purple", "green",       "green3", "deepskyblue3", "skyblue",  "black"
+  "yellow", "yellowgreen", "orange", "red", "red3", "blue", "purple", "green",  "green3", "deepskyblue3",
+  "skyblue",  "black"
 )
 ```
 
 ```{r filter.labels, echo=F}
 filter.labels <- c(
-  "#8",   "#11",  "#21", "#23A", "#25A", "#38A",
-  "#47",  "#56",  "#58", "#80A", "#82A", "None"
+  "#8", "#11", "#21", "#23A", "#25A", "#38A", "#47", "#56", "#58", "#80A", "#82A", "None"
 )
 ```
 
-```{r jupiter.setup, echo=F}
-jupiter.setup <- function(filter, vision, vision.type, neb, ntrz) {
+```{r make.jupiter.data, echo=F}
+make.jupiter.data <- function(filter, vision, vision.type, neb, ntrz) {
   
   subvision <- subset(vision, type==vision.type)
-
+  wavelength <- seq(min(filter$wavelength), max(filter$wavelength))
+  
   # Create data frame with wavelength, transmission, filter.
-  df <- data.frame(wavelength = filter$wavelength, 
-                   transmission = filter$transmission, 
-                   filter = filter$name)
+  df <- data.frame(wavelength = filter$wavelength, transmission = filter$transmission, filter = filter$name)
   
   # Add plain vision data.
-  df <- rbind(df, data.frame(wavelength = seq(min(df$wavelength), max(df$wavelength)), 
-                             transmission = 100, 
-                             filter = "None"))
+  df <- rbind(df, data.frame(wavelength = wavelength, transmission = 100, filter = "None"))
   
   # Add relative luminous efficiency.
-  df$rle <- approx(subvision$wavelength, 
-                   subvision$rle, 
-                   df$wavelength, 
-                   rule=2)$y
+  df$rle <- approx.y(subvision$wavelength, subvision$rle, df$wavelength)
 
   # Add filtered luminous efficiency.
   df$fle <- df$rle * df$transmission / 100
 
   # Add Jupiter NEB reflectance.
-  df$neb <- approx(neb$wavelength, 
-                   neb$reflectance,
-                   df$wavelength,
-                   rule=2)$y
+  df$neb <- approx.y(neb$wavelength, neb$reflectance, df$wavelength)
 
   # Add Jupiter NTrZ reflectance.
-  df$ntrz <- approx(ntrz$wavelength, 
-                    ntrz$reflectance,
-                    df$wavelength,
-                    rule=2)$y
+  df$ntrz <- approx.y(ntrz$wavelength, ntrz$reflectance, df$wavelength)
 
   # Add vision.
   df$vision <- vision.type
@@ -84,11 +76,40 @@ jupiter.setup <- function(filter, vision, vision.type, neb, ntrz) {
 }
 ```
 
+```{r make.sun.data, echo=F}
+make.sun.data <- function(filter, vision, vision.type, sun) {
+  
+  subvision <- subset(vision, type==vision.type)
+  wavelength <- seq(min(filter$wavelength), max(filter$wavelength))
+  
+  # Create data frame with wavelength, transmission, filter.
+  df <- data.frame(wavelength = filter$wavelength, transmission = filter$transmission, filter = filter$name)
+
+  # Add plain vision data.
+  df <- rbind(df, data.frame(wavelength = wavelength, transmission = 100, filter = "None"))
+
+  # Add relative luminous efficiency.
+  df$rle <- approx.y(subvision$wavelength, subvision$rle, df$wavelength)
+
+  # Add filtered luminous efficiency
+  df$fle <- df$rle * df$transmission/100 
+
+  # Add solar spectral irrandiance
+  df$irradiance <- approx.y(sun$wavelength, sun$irradiance, df$wavelength)
+
+  # Add vision.
+  df$vision <- vision.type
+
+  # Return.
+  df
+}
+```
+
 ```{r preprocess.filter, echo=F}
 preprocess.filter <- function(df, wavelength, name) {
   data.frame(
     wavelength = wavelength, 
-    transmission = approx(df$wavelength, df$transmission, wavelength)$y, 
+    transmission = approx.y(df$wavelength, df$transmission, wavelength), 
     name=name
   )
 }
@@ -104,44 +125,6 @@ read.filter <- function(name) {
 read.vision <- function(filename, type) {
   df <- read.csv(filename)
   df$type <- type
-  df
-}
-```
-
-```{r sun.setup, echo=F}
-sun.setup <- function(filter, vision, vision.type, sun) {
-  
-  subvision <- subset(vision, type==vision.type)
-
-  # Create data frame with wavelength, transmission, filter.
-  df <- data.frame(wavelength = filter$wavelength, 
-                   transmission = filter$transmission, 
-                   filter = filter$name)
-
-  # Add plain vision data.
-  df <- rbind(df, data.frame(wavelength = seq(min(filter$wavelength), max(filter$wavelength)),
-                             transmission = 100, 
-                             filter = "None"))
-
-  # Add relative luminous efficiency.
-  df$rle <- approx(subvision$wavelength, 
-                   subvision$rle, 
-                   df$wavelength, 
-                   rule=2)$y
-
-  # Add filtered luminous efficiency
-  df$fle <- df$rle * df$transmission/100 
-
-  # Add solar spectral irrandiance
-  df$irradiance <- approx(sun$wavelength, 
-                          sun$irradiance, 
-                          df$wavelength,
-                          rule=2)$y
-
-  # Add vision.
-  df$vision <- vision.type
-
-  # Return.
   df
 }
 ```
@@ -233,16 +216,18 @@ p <- ggplot(data=sun) +
 p
 ```
 
-Visual observing of sunlit object
+Calculate flux for visual observing of sunlit object
 ```{r}
-sun.visual <- rbind(sun.setup(filter,vision,"Scotopic",sun), sun.setup(filter,vision,"Photopic",sun))
-sun.visual$vision <- factor(sun.visual$vision, levels=c("Scotopic","Photopic")) # Reorder vision.
-```
+sun.data <- rbind(
+  make.sun.data(filter, vision, "Scotopic", sun), 
+  make.sun.data(filter, vision, "Photopic", sun)
+)
 
-Flux for visual observing of sunlit object
-```{r}
-sun.flux <- sun.visual %>%
-  
+sun.flux <- sun.data %>%
+
+  # Reorder vision.
+  mutate(vision = factor(vision, levels=c("Scotopic","Photopic"))) %>%
+    
   # Group by vision and filter.
   group_by(vision, filter) %>%
   
@@ -296,17 +281,14 @@ p
 if (write.plot.enabled) write.plot(p, "Jupiter NEB and NTrZ Reflectance.png")
 ```
 
-Combine Jupiter visual data for scotopic and photopic vision
+Calculate flux and contrast for visual observing Jupiter
 ```{r}
-jupiter.visual <- rbind(
-  jupiter.setup(filter, vision, "Scotopic", neb, ntrz), 
-  jupiter.setup(filter, vision, "Photopic", neb, ntrz)
+jupiter.data <- rbind(
+  make.jupiter.data(filter, vision, "Scotopic", neb, ntrz), 
+  make.jupiter.data(filter, vision, "Photopic", neb, ntrz)
 )
-```
 
-Flux and contrast for visual observing Jupiter
-```{r}
-jupiter.flux <- jupiter.visual %>%
+jupiter.flux <- jupiter.data %>%
   
   # Adjust vision order.
   mutate(vision=factor(vision, levels=c("Scotopic","Photopic"))) %>%
@@ -332,7 +314,7 @@ jupiter.flux <- jupiter.visual %>%
 print(data.table(jupiter.flux))
 ```
 
-Plot relativ flux and contrast for visual observing Jupiter 
+Plot contrast for visual observing Jupiter 
 ```{r}
 p <- ggplot(jupiter.flux) +
   geom_bar(aes(x=filter,y=michelson,fill=factor(filter, levels=c(filter.names, "None"))),stat="identity") +
@@ -349,12 +331,16 @@ if (write.plot.enabled) write.plot(p, "Jupiter NEB NTrZ Contrast.png")
 
 ## Appendix
 
+Smart approx function
+```{r approx.y, echo=T}
+```
+
 Filter names
-```{r, filter.names, echo=T}
+```{r filter.names, echo=T}
 ```
 
 Filter colors
-```{r, filter.color, echo=T}
+```{r filter.color, echo=T}
 ```
 
 Filter labels
