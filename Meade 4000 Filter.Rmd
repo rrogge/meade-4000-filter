@@ -76,8 +76,8 @@ make.jupiter.data <- function(filter, vision, vision.type, neb, ntrz) {
 }
 ```
 
-```{r make.sun.data, echo=F}
-make.sun.data <- function(filter, vision, vision.type, sun) {
+```{r make.sunlit.data, echo=F}
+make.sunlit.data <- function(filter, vision, vision.type, sun, reflectance=1) {
   
   subvision <- subset(vision, type==vision.type)
   wavelength <- seq(min(filter$wavelength), max(filter$wavelength))
@@ -96,6 +96,9 @@ make.sun.data <- function(filter, vision, vision.type, sun) {
 
   # Add solar spectral irrandiance
   df$irradiance <- approx.y(sun$wavelength, sun$irradiance, df$wavelength)
+
+  # Add reflectance for a spectral uniform reflector.
+  df$reflectance <- reflectance
 
   # Add vision.
   df$vision <- vision.type
@@ -130,14 +133,17 @@ read.vision <- function(filename, type) {
 ```
 
 ```{r write.plot, echo=F}
-write.plot <- function(p, filename, width=1024, height=576, font.size=16) {
+write.plot <- function(p, name=NULL, width=1024, height=576, font.size=16) {
+  title <- ifelse(!is.null(name), name, p$labels$title)
+  if (is.null(title)) stop("Neither name nor title given")
+  filename <- paste0("Meade 4000 - ", title, ".png")
   png(filename,width, height)
   print(p + theme_bw(base_size=font.size))
   dev.off()
 }
 ```
 
-## Transmission
+## Filter Transmission
 
 Read Meade 4000 filter set data from files
 ```{r}
@@ -158,7 +164,7 @@ p <- ggplot(data=filter) +
   coord_cartesian(xlim=c(250,800))
 p
 
-if (write.plot.enabled) write.plot(p, "Meade 4000 Filter.png")
+if (write.plot.enabled) write.plot(p, "Transmission")
 ```
 
 ## Scotopic/Photopic Vision
@@ -180,14 +186,12 @@ Plot relative luminous efficency of photopic and scotopic vision
 p <- ggplot(data=vision) +
   geom_line(aes(wavelength,rle,color=type)) +
   scale_color_manual(name="Vision", values=c("black","grey70")) +
-  labs(title="Photopic/Scotopic Vision", 
-       x="Wavelength [nm]", 
-       y="Relative Luminous Efficiency") +
+  labs(title="Vision Efficiency", x="Wavelength [nm]", y="Relative Luminous Efficiency") +
   coord_cartesian(xlim=c(w.min,w.max)) +
   theme_bw()
 p
 
-if (write.plot.enabled) write.plot(p, "Photopic and Scotopic Vision.png")
+if (write.plot.enabled) write.plot(p)
 ```
 
 ## Visual Observing of Sunlit Object
@@ -208,22 +212,20 @@ Plot solar spectral distribution
 ```{r}
 p <- ggplot(data=sun) +
   geom_line(aes(wavelength,irradiance)) +
-  labs(title="Solar Spectral Irradiance / Air Mass 1.5",
-       x="Wavelength [nm]",
-       y="Irradiance") +
+  labs(title="Solar Spectral Irradiance / Air Mass 1.5", x="Wavelength [nm]", y="Irradiance") +
   theme_bw() +
   coord_cartesian(xlim=c(w.min,w.max))
 p
 ```
 
-Calculate flux for visual observing of sunlit object
+Calculate flux for visual observing of sunlit object under scotopic and photopic conditions
 ```{r}
-sun.data <- rbind(
-  make.sun.data(filter, vision, "Scotopic", sun), 
-  make.sun.data(filter, vision, "Photopic", sun)
+sunlit.data <- rbind(
+  make.sunlit.data(filter, vision, "Scotopic", sun), 
+  make.sunlit.data(filter, vision, "Photopic", sun)
 )
 
-sun.flux <- sun.data %>%
+sunlit.flux <- sunlit.data %>%
 
   # Reorder vision.
   mutate(vision = factor(vision, levels=c("Scotopic","Photopic"))) %>%
@@ -232,30 +234,28 @@ sun.flux <- sun.data %>%
   group_by(vision, filter) %>%
   
   # Add vision specific constant.
-  mutate(k = ifelse(vision=="Scotopic",1699,683)) %>%
+  mutate(k = ifelse(vision == "Scotopic", 1699, 683)) %>%
   
   # Calculate flux.
-  summarize(flux=sum(fle*irradiance*k)) %>%
+  summarize(flux = sum(fle * irradiance * reflectance * k)) %>%
   
   # Sort by flux.
   arrange(-flux)
 
-print(data.table(sun.flux))
+print(data.table(sunlit.flux))
 ```
 
-Plot flux for visual observing of sunlit object
+Plot flux for visual observing of a sunlit object
 ```{r}
-p <- ggplot(sun.flux) +
+p <- ggplot(sunlit.flux) +
   geom_bar(aes(x=filter,y=flux,fill=factor(filter, levels=c(filter.names, "None"))),stat="identity") +
   scale_fill_manual(name="Filter", values=filter.colors, labels=filter.labels) +
   facet_grid(. ~ vision) +
-  labs(title="Visual Observing of Sunlit Object",
-       x="Wavelength [nm]",
-       y="Flux [lm/W]") +
+  labs(title="Sunlit Object", x="Wavelength [nm]", y="Flux [p.d.u.]") +
   theme_bw()
 p
 
-if (write.plot.enabled) write.plot(p, "Visual Observing of Sunlit Object.png")
+if (write.plot.enabled) write.plot(p)
 ```
 
 ## Visual Observing of Jupiter
@@ -269,19 +269,17 @@ ntrz <- read.csv("NTrZ.csv")
 Plot of Jupiter NEB/NTrZ reflectance
 ```{r}
 p <- ggplot(data=rbind(neb,ntrz)) +
-  geom_line(aes(wavelength,100*reflectance,color=feature)) +
+  geom_line(aes(wavelength, reflectance, color=feature)) +
   scale_color_discrete(name="Feature") +
-  labs(title="Jupiter Reflectance",
-       x="Wavelength [nm]",
-       y="Reflectance [%]") +
+  labs(title="Jupiter Reflectance", x="Wavelength [nm]", y="Reflectance [p.d.u.]") +
   theme_bw() +
   coord_cartesian(xlim=c(w.min,w.max))
 p
 
-if (write.plot.enabled) write.plot(p, "Jupiter NEB and NTrZ Reflectance.png")
+if (write.plot.enabled) write.plot(p)
 ```
 
-Calculate flux and contrast for visual observing Jupiter
+Calculate flux and contrast for visual observing Jupiter under scotopic and photopic conditions
 ```{r}
 jupiter.data <- rbind(
   make.jupiter.data(filter, vision, "Scotopic", neb, ntrz), 
@@ -320,13 +318,11 @@ p <- ggplot(jupiter.flux) +
   geom_bar(aes(x=filter,y=michelson,fill=factor(filter, levels=c(filter.names, "None"))),stat="identity") +
   scale_fill_manual(name="Filter", values=filter.colors, labels=filter.labels) +
   facet_grid(. ~ vision) +
-  labs(title="Jupiter NEB/NTrz Contrast",
-       x="Wavelength [nm]",
-       y="Contrast") +
+  labs(title="Jupiter", x="Wavelength [nm]", y="Contrast") +
   theme_bw()
 p
 
-if (write.plot.enabled) write.plot(p, "Jupiter NEB NTrZ Contrast.png")
+if (write.plot.enabled) write.plot(p)
 ```
 
 ## Appendix
@@ -347,8 +343,12 @@ Filter labels
 ```{r filter.labels, echo=T}
 ```
 
-Function to set up data frame for visula observing Jupiter
-```{r jupiter.setup, echo=T}
+Function to set up data frame for visual observing Jupiter
+```{r make.jupiter.data, echo=T}
+```
+
+Function to set up data frame for visual observing of a sunlight object
+```{r make.sunlit.data, echo=T}
 ```
 
 Function to preprocess filter data
@@ -361,10 +361,6 @@ Function to read in filter data
 
 Function to read vision data from file
 ```{r read.vision, echo=T}
-```
-
-Function to set up data frame for visual observing of sunlight
-```{r sun.setup, echo=T}
 ```
 
 Function used to write plot to PNG file
